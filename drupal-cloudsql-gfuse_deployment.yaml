@@ -1,0 +1,112 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: drupal-jellyfish-new
+spec:
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+        maxUnavailable: 1
+        maxSurge: 1
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: drupal
+    spec:
+      containers:
+        - image: us.gcr.io/jellyfish-agencysite/jellyfish-agencysite-drupal:gfuse4.0
+          name: drupal2
+          securityContext:
+              privileged: true
+              capabilities:
+                  add:
+                       - SYS_ADMIN
+          env:
+            - name: DBHOSTNAME
+              # Connect to the SQL proxy over the local network on a fixed port.
+              # Change the [PORT] to the port number used by your database
+              # (e.g. 3306).
+              value: 127.0.0.1
+            # These secrets are required to start the pod.
+            # [START cloudsql_secrets]
+            - name: DBPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cloudsql-db-credentials
+                  key: password
+            - name: DBUSERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cloudsql-db-credentials
+                  key: username
+            # [END cloudsql_seicrets]
+            - name: DBPORT
+              value: "3306"
+            - name: DBNAME
+              value: jellyfishgfuse
+            - name: DBDRIVER
+              value: mysql
+            - name: TABLEPREFIX
+              value: drupal_
+            - name: DRUPAL_HOME
+              value: /var/www
+            - name: MEDIABUCKET
+              value: jellyfish-agencysite-drupal
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/bucketaccess/credentials.json
+          volumeMounts:
+            - name: gcsfuse-credentials
+              mountPath: /etc/bucketaccess
+              readOnly: true 
+          ports:
+            - containerPort: 80
+              name: drupal
+#          livenessProbe:
+#            initialDelaySeconds: 20
+#            periodSeconds: 5
+#            httpGet:
+#              path: /health
+#              port: 80
+#          readinessProbe:
+#            initialDelaySeconds: 20
+#            periodSeconds: 5
+#            httpGet:
+#              path: /health
+#              port: 80
+        # Change [INSTANCE_CONNECTION_NAME] here to include your GCP
+        # project, the region of your Cloud SQL instance and the name
+        # of your Cloud SQL instance. The format is
+        # $PROJECT:$REGION:$INSTANCE
+        # Insert the port number used by your database.
+        # [START proxy_container]
+        - image: gcr.io/cloudsql-docker/gce-proxy:1.09
+          name: cloudsql-proxy
+          command: ["/cloud_sql_proxy", "--dir=/cloudsql",
+                    "-instances=jellyfish-agencysite:us-central1:drupalsqlinstance=tcp:3306",
+                    "-credential_file=/secrets/cloudsql/credentials.json"]
+          volumeMounts:
+            - name: cloudsql-instance-credentials
+              mountPath: /secrets/cloudsql
+              readOnly: true
+            - name: ssl-certs
+              mountPath: /etc/ssl/certs
+            - name: cloudsql
+              mountPath: /cloudsql
+        # [END proxy_container]
+      # [START volumes]
+      volumes:
+        - name: cloudsql-instance-credentials
+          secret:
+            secretName: cloudsql-instance-credentials
+        - name: ssl-certs
+          hostPath:
+            path: /etc/ssl/certs
+        - name: gcsfuse-credentials
+          secret:
+             secretName: jellyfish-agencysite-gfuse
+        - name: cloudsql
+          emptyDir:
+      # [END volumes]
+
